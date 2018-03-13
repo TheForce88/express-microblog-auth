@@ -2,10 +2,17 @@
 var express = require("express"),
   app = express(),
   bodyParser = require("body-parser"),
-  methodOverride = require("method-override");
+  methodOverride = require("method-override"),
+  // ** NEW ADDITIONS ** //
+  cookieParser = require('cookie-parser'),
+  session = require('express-session'),
+  passport = require('passport'),
+  LocalStrategy = require('passport-local').Strategy;
+
 // require Post model
 var db = require("./models"),
-  Post = db.Post;
+  Post = db.Post,
+  User = db.User;
 
 // configure bodyParser (for receiving form data)
 app.use(bodyParser.urlencoded({ extended: true, }));
@@ -17,6 +24,20 @@ app.use(express.static(__dirname + "/public"));
 app.set("view engine", "ejs");
 
 app.use(methodOverride("_method"));
+// ** middleware for auth ** //
+app.use(cookieParser());
+app.use(session({
+  secret: 'Diagonally', // change this from 'supersecretkey'!
+  resave: false,
+  saveUninitialized: false
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+
+// ** passport config ** //
+passport.use(new LocalStrategy(User.authenticate()));
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
 
 
 // HOMEPAGE ROUTE
@@ -26,7 +47,7 @@ app.get("/", function (req, res) {
     if (err) {
       res.status(500).json({ error: err.message, });
     } else {
-      res.render("index", { posts: allPosts, });
+      res.render("index", { posts: allPosts, user: req.user });
     }
   });
 });
@@ -110,6 +131,11 @@ app.get("/api/posts", function (req, res) {
 // create new post
 app.post("/api/posts", function (req, res) {
   // create new post with form data (`req.body`)
+  console.log("req.user");
+  if (!req.user) { // doesn't block from deleting post
+    res.status(401).send({error: "Not Authorized! Please login first."})
+  }
+
   var newPost = new Post(req.body);
 
   // save new post in db
@@ -118,6 +144,7 @@ app.post("/api/posts", function (req, res) {
       res.status(500).json({ error: err.message, });
     } else {
       res.json(savedPost);
+      // res.redirect('/');
     }
   });
 });
@@ -169,6 +196,10 @@ app.put("/api/posts/:id", function (req, res) {
 
 // delete post
 app.delete("/api/posts/:id", function (req, res) {
+  console.log("deleting post"); // doesn't show in console log
+  if (!req.user) { // doesn't from deleting post
+    return res.status(401).send({error: "Not Authorized! Please login first."})
+  }
   // get post id from url params (`req.params`)
   var postId = req.params.id;
 
@@ -180,6 +211,41 @@ app.delete("/api/posts/:id", function (req, res) {
       res.json(deletedPost);
     }
   });
+});
+
+// SIGNUP ROUTES
+app.get('/signup', function (req, res) {
+  res.render('signup');
+});
+
+// sign up new user, then log them in
+// hashes and salts password, saves new user to db
+app.post('/signup', function (req, res) {
+  User.register(new User({ username: req.body.username }), req.body.password,
+    function (err, newUser) {
+      passport.authenticate('local')(req, res, function() {
+        res.redirect('/');
+      });
+    });
+});
+
+// LOGIN ROUTES
+app.get('/login', function (req, res) {
+  res.render('login');
+});
+
+app.post('/login', passport.authenticate('local'), function (req, res) {
+  console.log(req.user);
+  // res.send('logged in!!!'); // sanity check
+  res.redirect('/'); // preferred!
+});
+
+// AUTH ROUTES
+app.get('/logout', function (req, res) {
+  // console.log("BEFORE logout", JSON.strigify(req.user));
+  req.logout();
+  // console.log("AFTER logout", JSON.strigify(req.user));
+  res.redirect('/');
 });
 
 
